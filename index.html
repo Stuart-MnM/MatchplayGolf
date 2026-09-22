@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Matchplay Draw</title>
+<style>
+  :root{
+    --green:#20492f; --green-dark:#173622; --cream:#f6f4ee; --gold:#b9974a;
+    --ink:#1c231e; --muted:#6d7a70; --line:#d9d3c4; --white:#ffffff;
+    --bad:#a3402f;
+    box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;}
+  html{scroll-padding-top:env(safe-area-inset-top,0px);}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--cream); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    line-height:1.4;
+  }
+  h1,h2,h3{font-family:Georgia,"Times New Roman",serif; margin:0 0 .3em; font-weight:normal;}
+  header{
+    background:var(--green); color:var(--cream);
+    padding:1.1rem 1.2rem calc(1.1rem + env(safe-area-inset-top,0px));
+    padding-top:calc(1.1rem + env(safe-area-inset-top,0px));
+  }
+  header h1{font-size:1.4rem; letter-spacing:.02em;}
+  header p{margin:.2rem 0 0; color:#cfe0d3; font-size:.85rem;}
+  nav{
+    display:flex; background:var(--green-dark); position:sticky; top:0; z-index:5;
+    top:env(safe-area-inset-top,0px);
+  }
+  nav button{
+    flex:1; padding:.7rem .5rem; background:none; border:none; color:#bcd0c1;
+    font-size:.85rem; cursor:pointer; border-bottom:3px solid transparent;
+  }
+  nav button.active{color:#fff; border-bottom-color:var(--gold); background:rgba(255,255,255,.05);}
+  main{max-width:840px; margin:0 auto; padding:1.2rem 1rem 3rem;}
+  .card{
+    background:var(--white); border:1px solid var(--line); border-radius:6px;
+    padding:1rem 1.1rem; margin-bottom:1rem;
+  }
+  label{display:block; font-size:.85rem; color:var(--muted); margin-bottom:.3rem;}
+  textarea,input[type=number]{
+    width:100%; padding:.5rem .6rem; border:1px solid var(--line); border-radius:4px;
+    font-size:.95rem; font-family:inherit; background:#fff; color:var(--ink);
+  }
+  textarea{min-height:140px; resize:vertical;}
+  .row{display:flex; gap:.8rem; flex-wrap:wrap;}
+  .row > div{flex:1; min-width:140px;}
+  button.btn{
+    background:var(--green); color:#fff; border:none; padding:.6rem 1rem;
+    border-radius:4px; font-size:.9rem; cursor:pointer; margin-top:.3rem;
+  }
+  button.btn.secondary{background:none; color:var(--green); border:1px solid var(--green);}
+  button.btn.danger{background:none; color:var(--bad); border:1px solid var(--bad);}
+  button.btn:disabled{opacity:.4; cursor:not-allowed;}
+  table{width:100%; border-collapse:collapse; margin-top:.5rem; font-size:.9rem;}
+  th,td{text-align:left; padding:.35rem .4rem; border-bottom:1px solid var(--line);}
+  th{color:var(--muted); font-weight:normal; font-size:.78rem;}
+  .fixture{display:flex; align-items:center; gap:.5rem; padding:.5rem 0; border-bottom:1px solid var(--line); flex-wrap:wrap;}
+  .fixture:last-child{border-bottom:none;}
+  .fixture .names{flex:1; min-width:140px; font-size:.92rem;}
+  .fixture .opts{display:flex; gap:.3rem; flex-wrap:wrap;}
+  .pill{
+    padding:.3rem .55rem; border:1px solid var(--line); border-radius:999px;
+    font-size:.78rem; background:#fff; cursor:pointer; color:var(--ink);
+  }
+  .pill.sel{background:var(--gold); border-color:var(--gold); color:#fff;}
+  .tag{display:inline-block; font-size:.72rem; color:var(--muted); border:1px solid var(--line); border-radius:3px; padding:0 .3rem; margin-left:.3rem;}
+  .group-block h3{font-size:1.05rem; color:var(--green);}
+  .bracket{display:flex; gap:1rem; overflow-x:auto; padding-bottom:.5rem;}
+  .round{min-width:190px; display:flex; flex-direction:column; justify-content:space-around; gap:.7rem;}
+  .round h4{font-size:.75rem; color:var(--muted); text-align:center; margin:.2rem 0;}
+  .match{border:1px solid var(--line); border-radius:5px; overflow:hidden;}
+  .slot{
+    padding:.5rem .6rem; font-size:.85rem; cursor:pointer; background:#fff;
+    border-bottom:1px solid var(--line); display:flex; justify-content:space-between;
+  }
+  .slot:last-child{border-bottom:none;}
+  .slot.winner{background:#eaf2ea; font-weight:600; color:var(--green);}
+  .slot.tbd{color:var(--muted); cursor:default; font-style:italic;}
+  .slot.bye{color:var(--muted); cursor:default;}
+  .champion{
+    text-align:center; padding:1.2rem; background:var(--green); color:#fff; border-radius:6px;
+    margin-bottom:1rem;
+  }
+  .champion h2{color:#fff; margin-bottom:.2rem;}
+  .warn{color:var(--bad); font-size:.85rem; margin-top:.4rem;}
+  .muted{color:var(--muted); font-size:.85rem;}
+  .empty{color:var(--muted); font-style:italic; padding:1rem 0;}
+  .toast{
+    position:fixed; top:calc(1rem + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%);
+    background:var(--ink); color:#fff; padding:.6rem 1rem; border-radius:6px; font-size:.85rem;
+    z-index:50; max-width:90%; text-align:center; box-shadow:0 4px 14px rgba(0,0,0,.2);
+  }
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(20,25,20,.5); display:flex; align-items:center;
+    justify-content:center; z-index:60; padding:1rem;
+  }
+  .modal-card{
+    background:#fff; border-radius:8px; padding:1.2rem; max-width:340px; width:100%;
+  }
+  .modal-card p{margin:0 0 1rem; font-size:.95rem; color:var(--ink);}
+  .modal-actions{display:flex; gap:.6rem; justify-content:flex-end;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Matchplay Draw</h1>
+  <p>Groups &rarr; standings &rarr; seeded knockout</p>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+
+<script>
+const STORE_KEY = 'golf_matchplay_v1';
+let state = load();
+
+function load(){
+  try{
+    const raw = localStorage.getItem(STORE_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return { players:[], numGroups:3, advancePerGroup:2, results:{}, tab:'setup', bracket:null, manualAdvance:{}, mode:'groups' };
+}
+function save(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){}
+}
+function uid(){ return 'p'+Math.random().toString(36).slice(2,9); }
+function playerName(id){ const p = state.players.find(p=>p.id===id); return p? p.name : '?'; }
+function shuffle(arr){ const a=arr.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
+function updatePlayerCount(){
+  const el = document.getElementById('playerInput');
+  const countEl = document.getElementById('playerCount');
+  if(!el || !countEl) return;
+  const n = el.value.split('\n').map(s=>s.trim()).filter(Boolean).length;
+  countEl.textContent = n + (n===1 ? ' player' : ' players');
+}
+function setMode(m){
+  const el = document.getElementById('playerInput');
+  const currentText = el ? el.value : state.players.map(p=>p.name).join('\n');
+  state.mode = m;
+  save();
+  render();
+  const newEl = document.getElementById('playerInput');
+  if(newEl) newEl.value = currentText;
+  updatePlayerCount();
+}
+
+function setTab(t){ state.tab = t; save(); render(); }
+
+function showMessage(msg){
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, 3200);
+}
+function showConfirmModal(message, onYes){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal-card">
+    <p>${message}</p>
+    <div class="modal-actions">
+      <button class="btn secondary" data-act="cancel">Cancel</button>
+      <button class="btn danger" data-act="yes">Yes, continue</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e)=>{
+    if(e.target === overlay){ overlay.remove(); return; }
+    const act = e.target.getAttribute('data-act');
+    if(act==='yes'){ overlay.remove(); onYes(); }
+    else if(act==='cancel'){ overlay.remove(); }
+  });
+}
+
+// ---- Groups & fixtures ----
+function groupPlayers(g){ return state.players.filter(p=>p.group===g); }
+function fixturesFor(g){
+  const ps = groupPlayers(g); const out=[];
+  for(let i=0;i<ps.length;i++) for(let j=i+1;j<ps.length;j++) out.push([ps[i].id, ps[j].id]);
+  return out;
+}
+function matchKey(a,b){ return [a,b].sort().join('__'); }
+function setResult(a,b,val){ state.results[matchKey(a,b)] = val; save(); render(); }
+function standings(g){
+  const ps = groupPlayers(g);
+  const pts = {}; ps.forEach(p=>pts[p.id]=0);
+  fixturesFor(g).forEach(([a,b])=>{
+    const r = state.results[matchKey(a,b)];
+    if(r==='a') pts[a]+=2;
+    else if(r==='b') pts[b]+=2;
+    else if(r==='half'){ pts[a]+=1; pts[b]+=1; }
+  });
+  return ps.map(p=>({id:p.id,name:p.name,pts:pts[p.id]})).sort((x,y)=>y.pts-x.pts);
+}
+function groupComplete(g){
+  return fixturesFor(g).every(([a,b])=>!!state.results[matchKey(a,b)]);
+}
+
+function createGroups(){
+  const raw = document.getElementById('playerInput').value;
+  const names = raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(names.length < 4){ showMessage('Enter at least 4 players.'); return; }
+  const numGroups = Math.max(2, parseInt(document.getElementById('numGroups').value)||3);
+  const advancePerGroup = Math.max(1, parseInt(document.getElementById('advCount').value)||2);
+  const run = ()=>{
+    const shuffled = shuffle(names);
+    const players = shuffled.map(n=>({id:uid(), name:n, group:0}));
+    players.forEach((p,i)=>{ p.group = i % numGroups; });
+    state.players = players;
+    state.numGroups = numGroups;
+    state.advancePerGroup = advancePerGroup;
+    state.results = {};
+    state.manualAdvance = {};
+    state.bracket = null;
+    save();
+    setTab('groups');
+  };
+  if(state.players.length){ showConfirmModal('This resets groups, results and any existing draw. Continue?', run); }
+  else run();
+}
+function directCreateDraw(){
+  const raw = document.getElementById('playerInput').value;
+  const names = raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(names.length < 2){ showMessage('Enter at least 2 players.'); return; }
+  const run = ()=>{
+    const players = shuffle(names).map(n=>({id:uid(), name:n, group:-1}));
+    state.players = players;
+    state.results = {};
+    state.manualAdvance = {};
+    const bracketSize = nextPow2(players.length);
+    const numByes = bracketSize - players.length;
+    const shuffled = shuffle(players);
+    const byeRecipients = shuffled.slice(0, numByes);
+    const rest = shuffled.slice(numByes);
+    const round0 = []; const winners = {};
+    byeRecipients.forEach(p=>{
+      const idx = round0.length;
+      round0.push({a:p.id, b:null});
+      winners[`0-${idx}`] = p.id;
+    });
+    for(let i=0;i<rest.length;i+=2){
+      round0.push({a:rest[i].id, b: rest[i+1] ? rest[i+1].id : null});
+      if(!rest[i+1]) winners[`0-${round0.length-1}`] = rest[i].id;
+    }
+    state.bracket = { round0, winners, conflictWarning:false };
+    save();
+    setTab('knockout');
+  };
+  if(state.bracket){ showConfirmModal('This creates a new draw and clears the current one. Continue?', run); }
+  else run();
+}
+function resetAll(){
+  showConfirmModal('Clear everything?', ()=>{
+    state = { players:[], numGroups:3, advancePerGroup:2, results:{}, tab:'setup', bracket:null, manualAdvance:{}, mode:'groups' };
+    save();
+    render();
+  });
+}
+
+function advancingForGroup(g){
+  const st = standings(g);
+  const n = state.advancePerGroup;
+  if(st.length <= n) return st.map(s=>s.id);
+  const cutoffPts = st[n-1].pts;
+  const aboveCutoff = st.filter(s=>s.pts > cutoffPts).map(s=>s.id);
+  const tiedAtCutoff = st.filter(s=>s.pts === cutoffPts).map(s=>s.id);
+  const slotsLeft = n - aboveCutoff.length;
+  if(tiedAtCutoff.length === slotsLeft){
+    return aboveCutoff.concat(tiedAtCutoff);
+  }
+  // tie ambiguity: use manual overrides
+  const manual = tiedAtCutoff.filter(id=>state.manualAdvance[id]);
+  return aboveCutoff.concat(manual);
+}
+function hasAmbiguousTie(g){
+  const st = standings(g); const n = state.advancePerGroup;
+  if(st.length<=n) return false;
+  const cutoffPts = st[n-1].pts;
+  const aboveCutoff = st.filter(s=>s.pts > cutoffPts).length;
+  const tiedAtCutoff = st.filter(s=>s.pts === cutoffPts).length;
+  return tiedAtCutoff !== (n - aboveCutoff);
+}
+
+// ---- Knockout generation ----
+function nextPow2(n){ let p=1; while(p<n) p*=2; return p; }
+
+function generateDraw(){
+  const groups = [...new Set(state.players.map(p=>p.group))];
+  let advancing = [];
+  for(const g of groups) advancing = advancing.concat(advancingForGroup(g).map(id=>({id, group:g})));
+  if(advancing.length < 2){ showMessage('Not enough players qualified yet.'); return; }
+  if(state.bracket){ showConfirmModal('This replaces the current draw. Continue?', ()=>buildDraw(advancing, groups)); }
+  else buildDraw(advancing, groups);
+}
+function buildDraw(advancing, groups){
+  // rank tiers: order within group by standings position -> tier 0 = winners, tier1 = runners-up etc
+  const tierOf = {};
+  for(const g of groups){
+    const st = standings(g);
+    const adv = advancingForGroup(g);
+    adv.forEach(id=>{ tierOf[id] = st.findIndex(s=>s.id===id); });
+  }
+  const withPts = advancing.map(a=>{
+    const st = standings(a.group);
+    const rec = st.find(s=>s.id===a.id);
+    return {...a, tier:tierOf[a.id], pts:rec?rec.pts:0};
+  });
+
+  const bracketSize = nextPow2(withPts.length);
+  const numByes = bracketSize - withPts.length;
+
+  const sorted = withPts.slice().sort((x,y)=> x.tier-y.tier || y.pts-x.pts);
+  const byeRecipients = sorted.slice(0, numByes);
+  const rest = sorted.slice(numByes);
+
+  // randomize 'rest' into round1 pairs avoiding same-group pairings
+  let best = null, bestConflicts = Infinity;
+  for(let attempt=0; attempt<400; attempt++){
+    const arr = shuffle(rest);
+    let conflicts = 0;
+    for(let i=0;i<arr.length;i+=2){
+      if(arr[i+1] && arr[i].group === arr[i+1].group) conflicts++;
+    }
+    if(conflicts < bestConflicts){ bestConflicts = conflicts; best = arr; }
+    if(conflicts === 0) break;
+  }
+  const pairedList = best || rest;
+
+  const round0 = [];
+  const winners = {};
+  byeRecipients.forEach(p=>{
+    const idx = round0.length;
+    round0.push({a:p.id, b:null});
+    winners[`0-${idx}`] = p.id;
+  });
+  for(let i=0;i<pairedList.length;i+=2){
+    round0.push({a:pairedList[i].id, b: pairedList[i+1]? pairedList[i+1].id : null});
+    if(!pairedList[i+1]){
+      winners[`0-${round0.length-1}`] = pairedList[i].id;
+    }
+  }
+
+  state.bracket = { round0, winners, conflictWarning: bestConflicts>0 };
+  save();
+  setTab('knockout');
+}
+
+function numRounds(){
+  if(!state.bracket) return 0;
+  return Math.log2(state.bracket.round0.length) + 1;
+}
+function winnerOf(r,i){ return state.bracket.winners[`${r}-${i}`] || null; }
+function matchPlayers(r,i){
+  if(r===0){ const m = state.bracket.round0[i]; return {a:m.a, b:m.b}; }
+  return { a: winnerOf(r-1, 2*i), b: winnerOf(r-1, 2*i+1) };
+}
+function pickWinner(r,i,who){
+  state.bracket.winners[`${r}-${i}`] = who;
+  // clear downstream winners that depended on this match
+  let round = r+1, idx = Math.floor(i/2);
+  while(state.bracket.winners[`${round}-${idx}`] !== undefined){
+    delete state.bracket.winners[`${round}-${idx}`];
+    round++; idx = Math.floor(idx/2);
+  }
+  save(); render();
+}
+function resetBracket(){
+  showConfirmModal('Clear the current draw and results?', ()=>{ state.bracket = null; save(); render(); });
+}
+
+// ---- Rendering ----
+function render(){
+  const tabs = (state.mode==='direct') ? ['setup','knockout'] : ['setup','groups','knockout'];
+  if(!tabs.includes(state.tab)) state.tab = 'setup';
+  document.getElementById('nav').innerHTML = tabs.map(t=>
+    `<button class="${state.tab===t?'active':''}" onclick="setTab('${t}')">${t[0].toUpperCase()+t.slice(1)}</button>`
+  ).join('');
+  const main = document.getElementById('main');
+  if(state.tab==='setup'){ main.innerHTML = renderSetup(); updatePlayerCount(); }
+  else if(state.tab==='groups') main.innerHTML = renderGroups();
+  else main.innerHTML = renderKnockout();
+}
+
+function renderSetup(){
+  const mode = state.mode || 'groups';
+  return `
+  <div class="card">
+    <h2>Players</h2>
+    <div class="row" style="margin-bottom:.8rem">
+      <label style="display:flex; align-items:center; gap:.4rem; font-size:.9rem; color:var(--ink)">
+        <input type="radio" name="mode" value="groups" ${mode==='groups'?'checked':''} onchange="setMode(this.value)"> Group stage then knockout
+      </label>
+      <label style="display:flex; align-items:center; gap:.4rem; font-size:.9rem; color:var(--ink)">
+        <input type="radio" name="mode" value="direct" ${mode==='direct'?'checked':''} onchange="setMode(this.value)"> Straight to knockout
+      </label>
+    </div>
+    <label>One name per line</label>
+    <textarea id="playerInput" oninput="updatePlayerCount()">${state.players.map(p=>p.name).join('\n')}</textarea>
+    <p class="muted" id="playerCount" style="margin:.3rem 0 0"></p>
+    ${mode==='groups' ? `
+    <div class="row" style="margin-top:.7rem">
+      <div>
+        <label>Number of groups</label>
+        <input type="number" id="numGroups" min="2" value="${state.numGroups}">
+      </div>
+      <div>
+        <label>Advance per group</label>
+        <input type="number" id="advCount" min="1" value="${state.advancePerGroup}">
+      </div>
+    </div>
+    <button class="btn" onclick="createGroups()">Create random groups</button>
+    <p class="muted" style="margin-top:.6rem">Creating groups resets results and any existing draw.</p>
+    ` : `
+    <button class="btn" style="margin-top:.7rem" onclick="directCreateDraw()">Create knockout draw</button>
+    <p class="muted" style="margin-top:.6rem">Straight random draw into a knockout bracket — no groups, no round robin.</p>
+    `}
+  </div>
+  ${state.players.length ? `<div class="card"><button class="btn danger" onclick="resetAll()">Reset everything</button></div>` : ''}
+  `;
+}
+
+function renderGroups(){
+  if(!state.players.length) return `<div class="card empty">Add players in Setup first.</div>`;
+  const groups = [...new Set(state.players.map(p=>p.group))].sort((a,b)=>a-b);
+  return groups.map(g=>{
+    const fixtures = fixturesFor(g);
+    const rows = fixtures.map(([a,b])=>{
+      const r = state.results[matchKey(a,b)];
+      return `<div class="fixture">
+        <div class="names">${playerName(a)} <span class="muted">v</span> ${playerName(b)}</div>
+        <div class="opts">
+          <span class="pill ${r==='a'?'sel':''}" onclick="setResult('${a}','${b}','a')">${playerName(a)} won</span>
+          <span class="pill ${r==='half'?'sel':''}" onclick="setResult('${a}','${b}','half')">Halved</span>
+          <span class="pill ${r==='b'?'sel':''}" onclick="setResult('${a}','${b}','b')">${playerName(b)} won</span>
+        </div>
+      </div>`;
+    }).join('');
+    const st = standings(g);
+    const advIds = new Set(advancingForGroup(g));
+    const ambiguous = hasAmbiguousTie(g);
+    const standingRows = st.map((s,idx)=>{
+      const isTiedCutoff = ambiguous && s.pts === st[state.advancePerGroup-1].pts;
+      return `<tr>
+        <td>${idx+1}</td><td>${s.name}</td><td>${s.pts}</td>
+        <td>${isTiedCutoff
+          ? `<input type="checkbox" ${state.manualAdvance[s.id]?'checked':''} onchange="state.manualAdvance['${s.id}']=this.checked; save(); render();">`
+          : (advIds.has(s.id) ? '&#10003;' : '')}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="card group-block">
+      <h3>Group ${g+1} ${groupComplete(g)?'':'<span class=\"tag\">in progress</span>'}</h3>
+      ${rows || '<p class="muted">No fixtures.</p>'}
+      <table>
+        <tr><th>#</th><th>Player</th><th>Pts</th><th>Advances</th></tr>
+        ${standingRows}
+      </table>
+      ${ambiguous ? `<p class="warn">Tie at the qualifying spot — tick who advances above.</p>` : ''}
+    </div>`;
+  }).join('') + `<div class="card"><button class="btn" onclick="generateDraw()">Generate knockout draw</button>
+    <p class="muted" style="margin-top:.5rem">Uses whoever currently qualifies from each group, even if some fixtures are unplayed.</p></div>`;
+}
+
+function renderKnockout(){
+  if(!state.bracket) return `<div class="card empty">No draw yet — generate one from the ${state.mode==='direct'?'Setup':'Groups'} tab.</div>`;
+  const rounds = numRounds();
+  const roundNames = (total,i)=> i===total-1 ? 'Final' : (i===total-2 ? 'Semi-final' : `Round ${i+1}`);
+  let html = state.bracket.conflictWarning ? `<p class="warn">Could not avoid every same-group pairing in round 1 — closest arrangement used.</p>` : '';
+  const finalWinner = winnerOf(rounds-1, 0);
+  if(finalWinner){
+    html += `<div class="champion"><h2>${playerName(finalWinner)}</h2><p>Champion</p></div>`;
+  }
+  html += `<div class="bracket">`;
+  for(let r=0;r<rounds;r++){
+    const matchCount = state.bracket.round0.length / Math.pow(2,r);
+    html += `<div class="round"><h4>${roundNames(rounds,r)}</h4>`;
+    if(r===0){
+      const byeNames = [];
+      for(let i=0;i<matchCount;i++){
+        const {a,b} = matchPlayers(r,i);
+        if(b===null && a!==null) byeNames.push(playerName(a));
+        else if(a===null && b!==null) byeNames.push(playerName(b));
+      }
+      for(let i=0;i<matchCount;i++){
+        const {a,b} = matchPlayers(r,i);
+        if(a===null || b===null) continue; // handled in bye summary below
+        const w = winnerOf(r,i);
+        html += `<div class="match">
+          <div class="slot ${w===a?'winner':''}" onclick="pickWinner(${r},${i},'${a}')">${playerName(a)}</div>
+          <div class="slot ${w===b?'winner':''}" onclick="pickWinner(${r},${i},'${b}')">${playerName(b)}</div>
+        </div>`;
+      }
+      if(byeNames.length){
+        html += `<div class="match"><div class="slot bye" style="font-size:.78rem">Byes straight through: ${byeNames.join(', ')}</div></div>`;
+      }
+    } else {
+      for(let i=0;i<matchCount;i++){
+        const {a,b} = matchPlayers(r,i);
+        const w = winnerOf(r,i);
+        html += `<div class="match">`;
+        if(a===null && b===null){
+          html += `<div class="slot tbd">TBD</div><div class="slot tbd">TBD</div>`;
+        } else if(b===null){
+          html += `<div class="slot bye">${playerName(a)}</div><div class="slot bye">— bye —</div>`;
+        } else if(a===null){
+          html += `<div class="slot bye">— bye —</div><div class="slot bye">${playerName(b)}</div>`;
+        } else {
+          html += `<div class="slot ${w===a?'winner':''}" onclick="pickWinner(${r},${i},'${a}')">${playerName(a)}</div>`;
+          html += `<div class="slot ${w===b?'winner':''}" onclick="pickWinner(${r},${i},'${b}')">${playerName(b)}</div>`;
+        }
+        html += `</div>`;
+      }
+    }
+    html += `</div>`;
+  }
+  html += `</div>`;
+  html += `<div class="card" style="margin-top:1rem"><button class="btn danger" onclick="resetBracket()">Clear draw</button></div>`;
+  return html;
+}
+
+render();
+</script>
+</body>
+</html>
