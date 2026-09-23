@@ -106,6 +106,17 @@
   }
   .modal-card p{margin:0 0 1rem; font-size:.95rem; color:var(--ink);}
   .modal-actions{display:flex; gap:.6rem; justify-content:flex-end;}
+  @media print{
+    nav, .btn, .toast, .modal-overlay{ display:none !important; }
+    body{ background:#fff; }
+    header{ background:#fff; color:#000; padding:0 0 .4rem; }
+    header p{ color:#444; }
+    main{ padding:0; max-width:100%; }
+    .card{ border:none; padding:0; margin-bottom:.8rem; }
+    .bracket{ overflow:visible; flex-wrap:wrap; }
+    .champion{ background:#fff; color:#000; border:2px solid #000; }
+    .champion h2{ color:#000; }
+  }
 </style>
 </head>
 <body>
@@ -153,6 +164,15 @@ function setMode(m){
 }
 
 function setTab(t){ state.tab = t; save(); render(); }
+function renderKeepScroll(){
+  const y = window.scrollY;
+  const oldBracket = document.querySelector('.bracket');
+  const bracketScrollLeft = oldBracket ? oldBracket.scrollLeft : 0;
+  render();
+  window.scrollTo(0, y);
+  const newBracket = document.querySelector('.bracket');
+  if(newBracket) newBracket.scrollLeft = bracketScrollLeft;
+}
 
 function showMessage(msg){
   const el = document.createElement('div');
@@ -188,7 +208,7 @@ function fixturesFor(g){
   return out;
 }
 function matchKey(a,b){ return [a,b].sort().join('__'); }
-function setResult(a,b,val){ state.results[matchKey(a,b)] = val; save(); render(); }
+function setResult(a,b,val){ state.results[matchKey(a,b)] = val; save(); renderKeepScroll(); }
 function standings(g){
   const ps = groupPlayers(g);
   const pts = {}; ps.forEach(p=>pts[p.id]=0);
@@ -417,10 +437,94 @@ function pickWinner(r,i,who){
     delete state.bracket.winners[`${round}-${idx}`];
     round++; idx = Math.floor(idx/2);
   }
-  save(); render();
+  save(); renderKeepScroll();
 }
 function resetBracket(){
   showConfirmModal('Clear the current draw and results?', ()=>{ state.bracket = null; save(); render(); });
+}
+
+function printDraw(){
+  if(!state.bracket){ showMessage('No draw to print yet.'); return; }
+  window.print();
+}
+
+function buildDrawText(){
+  const lines = [];
+  lines.push('*Matchplay Draw*');
+  lines.push('_Updated ' + new Date().toLocaleString() + '_');
+  lines.push('');
+  if(state.bracket.seedInfo){
+    lines.push('*Seeding (by WHI, lowest first)*');
+    state.bracket.seedInfo.forEach(s=>{
+      lines.push(`${s.seed}. ${s.name}${s.handicap!==null ? ' (WHI '+s.handicap+')' : ''}`);
+    });
+    lines.push('');
+  }
+  const rounds = numRounds();
+  const roundNames = (total,i)=> i===total-1 ? 'Final' : (i===total-2 ? 'Semi-final' : `Round ${i+1}`);
+  for(let r=0;r<rounds;r++){
+    lines.push(`*${roundNames(rounds,r)}*`);
+    const matchCount = state.bracket.round0.length / Math.pow(2,r);
+    for(let i=0;i<matchCount;i++){
+      const {a,b} = matchPlayers(r,i);
+      const w = winnerOf(r,i);
+      if(a===null && b===null){ lines.push('TBD vs TBD'); }
+      else if(b===null){ lines.push(`${playerName(a)} — bye`); }
+      else if(a===null){ lines.push(`${playerName(b)} — bye`); }
+      else {
+        const nameA = w===a ? `*${playerName(a)}*` : playerName(a);
+        const nameB = w===b ? `*${playerName(b)}*` : playerName(b);
+        lines.push(`${nameA} vs ${nameB}`);
+      }
+    }
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
+async function copyDraw(){
+  if(!state.bracket){ showMessage('No draw to copy yet.'); return; }
+  const text = buildDrawText();
+  let copied = false;
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    }
+  }catch(e){ copied = false; }
+  if(!copied){
+    try{
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed'; ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      copied = document.execCommand('copy');
+      document.body.removeChild(ta);
+    }catch(e){ copied = false; }
+  }
+  if(copied){ showMessage('Copied — paste it into WhatsApp.'); }
+  else { showCopyFallback(text); }
+}
+
+function showCopyFallback(text){
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal-card" style="max-width:420px">
+    <p>Couldn't copy automatically — tap the text below, select all, and copy it manually:</p>
+    <textarea id="copyFallbackText" readonly style="width:100%;min-height:220px;font-family:inherit;font-size:.85rem;padding:.5rem;border:1px solid var(--line);border-radius:4px;"></textarea>
+    <div class="modal-actions" style="margin-top:.7rem">
+      <button class="btn secondary" data-act="cancel">Close</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  const ta = overlay.querySelector('#copyFallbackText');
+  ta.value = text;
+  ta.focus(); ta.select();
+  overlay.addEventListener('click', (e)=>{
+    if(e.target === overlay){ overlay.remove(); return; }
+    if(e.target.getAttribute('data-act')==='cancel'){ overlay.remove(); }
+  });
 }
 
 // ---- Rendering ----
@@ -498,7 +602,7 @@ function renderGroups(){
       return `<tr>
         <td>${idx+1}</td><td>${s.name}</td><td>${s.pts}</td>
         <td>${isTiedCutoff
-          ? `<input type="checkbox" ${state.manualAdvance[s.id]?'checked':''} onchange="state.manualAdvance['${s.id}']=this.checked; save(); render();">`
+          ? `<input type="checkbox" ${state.manualAdvance[s.id]?'checked':''} onchange="state.manualAdvance['${s.id}']=this.checked; save(); renderKeepScroll();">`
           : (advIds.has(s.id) ? '&#10003;' : '')}</td>
       </tr>`;
     }).join('');
@@ -577,7 +681,11 @@ function renderKnockout(){
     html += `</div>`;
   }
   html += `</div>`;
-  html += `<div class="card" style="margin-top:1rem"><button class="btn danger" onclick="resetBracket()">Clear draw</button></div>`;
+  html += `<div class="card" style="margin-top:1rem">
+    <button class="btn secondary" onclick="printDraw()">Print / Save as PDF</button>
+    <button class="btn secondary" onclick="copyDraw()" style="margin-left:.5rem">Copy for WhatsApp</button>
+    <button class="btn danger" onclick="resetBracket()" style="margin-left:.5rem">Clear draw</button>
+  </div>`;
   return html;
 }
 
