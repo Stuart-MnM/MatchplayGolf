@@ -204,9 +204,20 @@ function groupComplete(g){
   return fixturesFor(g).every(([a,b])=>!!state.results[matchKey(a,b)]);
 }
 
+function parsePlayerLine(line){
+  const parts = line.split(',');
+  const name = parts[0].trim();
+  let handicap = null;
+  if(parts.length > 1){
+    const h = parseFloat(parts[1].trim());
+    if(!isNaN(h)) handicap = h;
+  }
+  return { name, handicap };
+}
+
 function createGroups(){
   const raw = document.getElementById('playerInput').value;
-  const names = raw.split('\n').map(s=>s.trim()).filter(Boolean);
+  const names = raw.split('\n').map(s=>s.trim()).filter(Boolean).map(l=>parsePlayerLine(l).name);
   if(names.length < 4){ showMessage('Enter at least 4 players.'); return; }
   const numGroups = Math.max(2, parseInt(document.getElementById('numGroups').value)||3);
   const advancePerGroup = Math.max(1, parseInt(document.getElementById('advCount').value)||2);
@@ -226,31 +237,67 @@ function createGroups(){
   if(state.players.length){ showConfirmModal('This resets groups, results and any existing draw. Continue?', run); }
   else run();
 }
+function seedOrder(n){
+  // standard tournament seeding order for a bracket of size n (power of 2)
+  let result = [1];
+  while(result.length < n){
+    const len = result.length * 2;
+    const next = [];
+    for(const s of result){ next.push(s); next.push(len + 1 - s); }
+    result = next;
+  }
+  return result;
+}
+
 function directCreateDraw(){
   const raw = document.getElementById('playerInput').value;
-  const names = raw.split('\n').map(s=>s.trim()).filter(Boolean);
-  if(names.length < 2){ showMessage('Enter at least 2 players.'); return; }
+  const entries = raw.split('\n').map(s=>s.trim()).filter(Boolean).map(parsePlayerLine);
+  if(entries.length < 2){ showMessage('Enter at least 2 players.'); return; }
   const run = ()=>{
-    const players = shuffle(names).map(n=>({id:uid(), name:n, group:-1}));
+    const players = entries.map(e=>({id:uid(), name:e.name, handicap:e.handicap, group:-1}));
     state.players = players;
     state.results = {};
     state.manualAdvance = {};
-    const bracketSize = nextPow2(players.length);
-    const numByes = bracketSize - players.length;
-    const shuffled = shuffle(players);
-    const byeRecipients = shuffled.slice(0, numByes);
-    const rest = shuffled.slice(numByes);
-    const round0 = []; const winners = {};
-    byeRecipients.forEach(p=>{
-      const idx = round0.length;
-      round0.push({a:p.id, b:null});
-      winners[`0-${idx}`] = p.id;
-    });
-    for(let i=0;i<rest.length;i+=2){
-      round0.push({a:rest[i].id, b: rest[i+1] ? rest[i+1].id : null});
-      if(!rest[i+1]) winners[`0-${round0.length-1}`] = rest[i].id;
+
+    const hasHandicaps = players.some(p=>p.handicap!==null);
+    const round0 = []; const winners = {}; let seedInfo = null;
+
+    if(hasHandicaps){
+      const sorted = players.slice().sort((x,y)=>{
+        const hx = x.handicap===null ? Infinity : x.handicap;
+        const hy = y.handicap===null ? Infinity : y.handicap;
+        return hx - hy;
+      });
+      const N = sorted.length;
+      const bracketSize = nextPow2(N);
+      const order = seedOrder(bracketSize);
+      const slotPlayers = order.map(seedNum => seedNum <= N ? sorted[seedNum-1] : null);
+      for(let i=0;i<slotPlayers.length;i+=2){
+        const p1 = slotPlayers[i], p2 = slotPlayers[i+1];
+        round0.push({ a: p1?p1.id:null, b: p2?p2.id:null });
+        const idx = round0.length-1;
+        if(p1 && !p2) winners[`0-${idx}`] = p1.id;
+        else if(!p1 && p2) winners[`0-${idx}`] = p2.id;
+      }
+      seedInfo = sorted.map((p,i)=>({ name:p.name, handicap:p.handicap, seed:i+1 }));
+    } else {
+      const bracketSize = nextPow2(players.length);
+      const numByes = bracketSize - players.length;
+      const shuffled = shuffle(players);
+      const byeRecipients = shuffled.slice(0, numByes);
+      const rest = shuffled.slice(numByes);
+      byeRecipients.forEach(p=>{
+        const idx = round0.length;
+        round0.push({a:p.id, b:null});
+        winners[`0-${idx}`] = p.id;
+      });
+      for(let i=0;i<rest.length;i+=2){
+        round0.push({a:rest[i].id, b: rest[i+1] ? rest[i+1].id : null});
+        if(!rest[i+1]) winners[`0-${round0.length-1}`] = rest[i].id;
+      }
     }
-    state.bracket = { round0, winners, conflictWarning:false };
+
+    state.bracket = { round0, winners, conflictWarning:false, seedInfo };
     save();
     setTab('knockout');
   };
@@ -420,7 +467,7 @@ function renderSetup(){
     <p class="muted" style="margin-top:.6rem">Creating groups resets results and any existing draw.</p>
     ` : `
     <button class="btn" style="margin-top:.7rem" onclick="directCreateDraw()">Create knockout draw</button>
-    <p class="muted" style="margin-top:.6rem">Straight random draw into a knockout bracket — no groups, no round robin.</p>
+    <p class="muted" style="margin-top:.6rem">Add a handicap after a comma to seed the draw by WHI, e.g. <code>Alice, 5.4</code> — lowest handicap gets top seed and any byes. Leave it off any name for a plain random draw.</p>
     `}
   </div>
   ${state.players.length ? `<div class="card"><button class="btn danger" onclick="resetAll()">Reset everything</button></div>` : ''}
@@ -476,6 +523,15 @@ function renderKnockout(){
   const finalWinner = winnerOf(rounds-1, 0);
   if(finalWinner){
     html += `<div class="champion"><h2>${playerName(finalWinner)}</h2><p>Champion</p></div>`;
+  }
+  if(state.bracket.seedInfo){
+    html += `<div class="card">
+      <h3>Seeding (by WHI, lowest first)</h3>
+      <table><tr><th>Seed</th><th>Player</th><th>WHI</th></tr>
+        ${state.bracket.seedInfo.map(s=>`<tr><td>${s.seed}</td><td>${s.name}</td><td>${s.handicap===null?'—':s.handicap}</td></tr>`).join('')}
+      </table>
+      <p class="muted">Top seeds get any byes, and standard tournament seeding keeps the top seeds apart until the later rounds.</p>
+    </div>`;
   }
   html += `<div class="bracket">`;
   for(let r=0;r<rounds;r++){
