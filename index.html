@@ -152,6 +152,14 @@ function updatePlayerCount(){
   const n = el.value.split('\n').map(s=>s.trim()).filter(Boolean).length;
   countEl.textContent = n + (n===1 ? ' player' : ' players');
 }
+function updateCreateLabel(){
+  const numEl = document.getElementById('numGroups');
+  const btn = document.getElementById('createGroupsBtn');
+  if(!numEl || !btn) return;
+  const n = parseInt(numEl.value) || 1;
+  btn.textContent = n === 1 ? 'Create Group' : 'Create random groups';
+}
+
 function setMode(m){
   const el = document.getElementById('playerInput');
   const currentText = el ? el.value : state.players.map(p=>p.name).join('\n');
@@ -239,7 +247,7 @@ function createGroups(){
   const raw = document.getElementById('playerInput').value;
   const names = raw.split('\n').map(s=>s.trim()).filter(Boolean).map(l=>parsePlayerLine(l).name);
   if(names.length < 4){ showMessage('Enter at least 4 players.'); return; }
-  const numGroups = Math.max(2, parseInt(document.getElementById('numGroups').value)||3);
+  const numGroups = Math.max(1, parseInt(document.getElementById('numGroups').value)||3);
   const advancePerGroup = Math.max(1, parseInt(document.getElementById('advCount').value)||2);
   const run = ()=>{
     const shuffled = shuffle(names);
@@ -388,18 +396,25 @@ function buildDraw(advancing, groups){
   const byeRecipients = sorted.slice(0, numByes);
   const rest = sorted.slice(numByes);
 
-  // randomize 'rest' into round1 pairs avoiding same-group pairings
-  let best = null, bestConflicts = Infinity;
-  for(let attempt=0; attempt<400; attempt++){
-    const arr = shuffle(rest);
-    let conflicts = 0;
-    for(let i=0;i<arr.length;i+=2){
-      if(arr[i+1] && arr[i].group === arr[i+1].group) conflicts++;
+  // randomize 'rest' into round1 pairs, avoiding same-group pairings when there's more than one group
+  let pairedList;
+  let bestConflicts = 0;
+  if(groups.length <= 1){
+    pairedList = shuffle(rest);
+  } else {
+    let best = null;
+    bestConflicts = Infinity;
+    for(let attempt=0; attempt<400; attempt++){
+      const arr = shuffle(rest);
+      let conflicts = 0;
+      for(let i=0;i<arr.length;i+=2){
+        if(arr[i+1] && arr[i].group === arr[i+1].group) conflicts++;
+      }
+      if(conflicts < bestConflicts){ bestConflicts = conflicts; best = arr; }
+      if(conflicts === 0) break;
     }
-    if(conflicts < bestConflicts){ bestConflicts = conflicts; best = arr; }
-    if(conflicts === 0) break;
+    pairedList = best || rest;
   }
-  const pairedList = best || rest;
 
   const round0 = [];
   const winners = {};
@@ -573,14 +588,14 @@ function renderSetup(){
     <div class="row" style="margin-top:.7rem">
       <div>
         <label>Number of groups</label>
-        <input type="number" id="numGroups" min="2" value="${state.numGroups}">
+        <input type="number" id="numGroups" min="1" value="${state.numGroups}" oninput="updateCreateLabel()">
       </div>
       <div>
         <label>Advance per group</label>
         <input type="number" id="advCount" min="1" value="${state.advancePerGroup}">
       </div>
     </div>
-    <button class="btn" onclick="createGroups()">Create random groups</button>
+    <button class="btn" id="createGroupsBtn" onclick="createGroups()">${(parseInt(state.numGroups)||3)===1 ? 'Create Group' : 'Create random groups'}</button>
     <p class="muted" style="margin-top:.6rem">Creating groups resets results and any existing draw.</p>
     ` : `
     <button class="btn" style="margin-top:.7rem" onclick="directCreateDraw()">Create knockout draw</button>
