@@ -216,17 +216,40 @@ function fixturesFor(g){
   return out;
 }
 function matchKey(a,b){ return [a,b].sort().join('__'); }
-function setResult(a,b,val){ state.results[matchKey(a,b)] = val; save(); renderKeepScroll(); }
+function normResult(r){
+  if(!r) return null;
+  if(typeof r === 'string') return { winner:r, margin:0 }; // old saved format
+  return r;
+}
+function setWinner(a,b,winner){
+  const key = matchKey(a,b);
+  const existing = normResult(state.results[key]);
+  const margin = winner==='half' ? 0 : (existing && existing.winner===winner ? existing.margin : null);
+  state.results[key] = { winner, margin };
+  save(); renderKeepScroll();
+}
+function setMargin(a,b,val){
+  const key = matchKey(a,b);
+  const rec = normResult(state.results[key]);
+  if(!rec || rec.winner==='half') return;
+  const n = parseInt(val,10);
+  rec.margin = (!isNaN(n) && n>0) ? n : null;
+  state.results[key] = rec;
+  save(); renderKeepScroll();
+}
 function standings(g){
   const ps = groupPlayers(g);
-  const pts = {}; ps.forEach(p=>pts[p.id]=0);
+  const pts = {}; const diff = {};
+  ps.forEach(p=>{ pts[p.id]=0; diff[p.id]=0; });
   fixturesFor(g).forEach(([a,b])=>{
-    const r = state.results[matchKey(a,b)];
-    if(r==='a') pts[a]+=2;
-    else if(r==='b') pts[b]+=2;
-    else if(r==='half'){ pts[a]+=1; pts[b]+=1; }
+    const r = normResult(state.results[matchKey(a,b)]);
+    if(!r) return;
+    if(r.winner==='a'){ pts[a]+=2; const m=r.margin||0; diff[a]+=m; diff[b]-=m; }
+    else if(r.winner==='b'){ pts[b]+=2; const m=r.margin||0; diff[b]+=m; diff[a]-=m; }
+    else if(r.winner==='half'){ pts[a]+=1; pts[b]+=1; }
   });
-  return ps.map(p=>({id:p.id,name:p.name,pts:pts[p.id]})).sort((x,y)=>y.pts-x.pts);
+  return ps.map(p=>({id:p.id,name:p.name,pts:pts[p.id],diff:diff[p.id]}))
+    .sort((x,y)=> y.pts-x.pts || y.diff-x.diff);
 }
 function groupComplete(g){
   return fixturesFor(g).every(([a,b])=>!!state.results[matchKey(a,b)]);
@@ -332,6 +355,13 @@ function directCreateDraw(){
   if(state.bracket){ showConfirmModal('This creates a new draw and clears the current one. Continue?', run); }
   else run();
 }
+function renamePlayer(id, newName){
+  const name = newName.trim();
+  if(!name){ showMessage('Name cannot be empty.'); renderKeepScroll(); return; }
+  const p = state.players.find(p=>p.id===id);
+  if(p){ p.name = name; save(); renderKeepScroll(); }
+}
+
 function resetAll(){
   showConfirmModal('Clear everything?', ()=>{
     state = { players:[], numGroups:3, advancePerGroup:2, results:{}, tab:'setup', bracket:null, manualAdvance:{}, mode:'groups' };
@@ -344,9 +374,9 @@ function advancingForGroup(g){
   const st = standings(g);
   const n = state.advancePerGroup;
   if(st.length <= n) return st.map(s=>s.id);
-  const cutoffPts = st[n-1].pts;
-  const aboveCutoff = st.filter(s=>s.pts > cutoffPts).map(s=>s.id);
-  const tiedAtCutoff = st.filter(s=>s.pts === cutoffPts).map(s=>s.id);
+  const cutoff = st[n-1];
+  const aboveCutoff = st.filter(s => s.pts>cutoff.pts || (s.pts===cutoff.pts && s.diff>cutoff.diff)).map(s=>s.id);
+  const tiedAtCutoff = st.filter(s => s.pts===cutoff.pts && s.diff===cutoff.diff).map(s=>s.id);
   const slotsLeft = n - aboveCutoff.length;
   if(tiedAtCutoff.length === slotsLeft){
     return aboveCutoff.concat(tiedAtCutoff);
@@ -358,9 +388,9 @@ function advancingForGroup(g){
 function hasAmbiguousTie(g){
   const st = standings(g); const n = state.advancePerGroup;
   if(st.length<=n) return false;
-  const cutoffPts = st[n-1].pts;
-  const aboveCutoff = st.filter(s=>s.pts > cutoffPts).length;
-  const tiedAtCutoff = st.filter(s=>s.pts === cutoffPts).length;
+  const cutoff = st[n-1];
+  const aboveCutoff = st.filter(s=>s.pts>cutoff.pts || (s.pts===cutoff.pts && s.diff>cutoff.diff)).length;
+  const tiedAtCutoff = st.filter(s=>s.pts===cutoff.pts && s.diff===cutoff.diff).length;
   return tiedAtCutoff !== (n - aboveCutoff);
 }
 
@@ -555,6 +585,161 @@ function showCopyFallback(text){
   });
 }
 
+function roundRect(ctx,x,y,w,h,r,fill,stroke){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+  if(fill) ctx.fill();
+  if(stroke) ctx.stroke();
+}
+
+function buildBracketImage(){
+  const boxW=200, boxH=50, vGap=26, colGap=70;
+  const rounds = numRounds();
+  const round0Count = state.bracket.round0.length;
+  const positions = [];
+  for(let r=0;r<rounds;r++){
+    const count = round0Count / Math.pow(2,r);
+    positions[r] = [];
+    for(let i=0;i<count;i++){
+      if(r===0){ positions[0][i] = i*(boxH+vGap) + boxH/2; }
+      else { positions[r][i] = (positions[r-1][2*i] + positions[r-1][2*i+1]) / 2; }
+    }
+  }
+  const marginLeft = 30;
+  let marginTop = 130;
+  const seedLines = state.bracket.seedInfo ? state.bracket.seedInfo.length : 0;
+  if(seedLines) marginTop += 20 + seedLines*16 + 14;
+
+  const contentHeight = positions[0][positions[0].length-1] + boxH/2;
+  const width = marginLeft*2 + rounds*boxW + (rounds-1)*colGap;
+  const height = marginTop + contentHeight + 60;
+
+  const canvas = document.createElement('canvas');
+  const SCALE = 2;
+  canvas.width = width * SCALE; canvas.height = height * SCALE;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
+
+  ctx.fillStyle = '#f6f4ee'; ctx.fillRect(0,0,width,height);
+  ctx.fillStyle = '#20492f'; ctx.fillRect(0,0,width,70);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '600 26px Georgia, serif';
+  ctx.fillText('Matchplay Draw', marginLeft, 46);
+  ctx.font = '13px -apple-system, Arial, sans-serif';
+  ctx.fillStyle = '#cfe0d3';
+  ctx.fillText('Updated ' + new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}), marginLeft, 62);
+
+  let y = 92;
+  if(seedLines){
+    ctx.fillStyle = '#1c231e';
+    ctx.font = '600 14px Georgia, serif';
+    ctx.fillText('Seeding (by WHI)', marginLeft, y); y += 18;
+    ctx.font = '12.5px -apple-system, Arial, sans-serif';
+    ctx.fillStyle = '#3a453d';
+    state.bracket.seedInfo.forEach(s=>{
+      ctx.fillText(`${s.seed}. ${s.name}${s.handicap!==null?' (WHI '+s.handicap+')':''}`, marginLeft, y);
+      y += 16;
+    });
+  }
+
+  const roundNamesFn = (total,i)=> i===total-1 ? 'Final' : (i===total-2 ? 'Semi-final' : `Round ${i+1}`);
+
+  ctx.strokeStyle = '#b9974a'; ctx.lineWidth = 2;
+  for(let r=0;r<rounds-1;r++){
+    const count = positions[r+1].length;
+    for(let i=0;i<count;i++){
+      const y1 = marginTop + positions[r][2*i];
+      const y2 = marginTop + positions[r][2*i+1];
+      const yP = marginTop + positions[r+1][i];
+      const x1 = marginLeft + r*(boxW+colGap) + boxW;
+      const xMid = x1 + colGap/2;
+      const x2 = marginLeft + (r+1)*(boxW+colGap);
+      ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(xMid,y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x1,y2); ctx.lineTo(xMid,y2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xMid,y1); ctx.lineTo(xMid,y2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xMid,yP); ctx.lineTo(x2,yP); ctx.stroke();
+    }
+  }
+
+  for(let r=0;r<rounds;r++){
+    const x = marginLeft + r*(boxW+colGap);
+    const deadline = state.bracket.roundDeadlines && state.bracket.roundDeadlines[r];
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#1c231e';
+    ctx.font = '700 15px -apple-system, Arial, sans-serif';
+    ctx.fillText(roundNamesFn(rounds,r), x + boxW/2, marginTop - (deadline ? 30 : 16));
+    if(deadline){
+      ctx.font = '600 13px -apple-system, Arial, sans-serif';
+      ctx.fillStyle = '#3a453d';
+      ctx.fillText('To be played by ' + formatDeadline(deadline), x + boxW/2, marginTop - 12);
+    }
+    ctx.textAlign = 'left';
+
+    const count = positions[r].length;
+    for(let i=0;i<count;i++){
+      const yTop = marginTop + positions[r][i] - boxH/2;
+      const {a,b} = matchPlayers(r,i);
+      const w = winnerOf(r,i);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#d9d3c4'; ctx.lineWidth = 1;
+      roundRect(ctx, x, yTop, boxW, boxH, 6, true, true);
+
+      const nameA = (a===null) ? (b===null?'TBD':'— bye —') : playerName(a);
+      const nameB = (b===null) ? (a===null?'TBD':'— bye —') : playerName(b);
+
+      ctx.fillStyle = (a===null) ? '#6d7a70' : ((w && w===a) ? '#20492f' : '#1c231e');
+      ctx.font = (a!==null && w===a) ? '600 13px -apple-system, Arial, sans-serif' : '13px -apple-system, Arial, sans-serif';
+      ctx.fillText(nameA, x+10, yTop+boxH/2-4);
+
+      ctx.strokeStyle = '#d9d3c4';
+      ctx.beginPath(); ctx.moveTo(x,yTop+boxH/2); ctx.lineTo(x+boxW,yTop+boxH/2); ctx.stroke();
+
+      ctx.fillStyle = (b===null) ? '#6d7a70' : ((w && w===b) ? '#20492f' : '#1c231e');
+      ctx.font = (b!==null && w===b) ? '600 13px -apple-system, Arial, sans-serif' : '13px -apple-system, Arial, sans-serif';
+      ctx.fillText(nameB, x+10, yTop+boxH-8);
+    }
+  }
+
+  const finalWinner = winnerOf(rounds-1,0);
+  if(finalWinner){
+    ctx.fillStyle = '#b9974a';
+    ctx.font = '600 16px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Champion: ' + playerName(finalWinner), width/2, height-24);
+    ctx.textAlign = 'left';
+  }
+
+  return canvas.toDataURL('image/png');
+}
+
+function shareImage(){
+  if(!state.bracket){ showMessage('No draw to share yet.'); return; }
+  const dataUrl = buildBracketImage();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `<div class="modal-card" style="max-width:92vw; width:auto;">
+    <p>Long-press (or right-click) the image below to save it or share it straight to WhatsApp.</p>
+    <div style="max-height:60vh; overflow:auto; border:1px solid var(--line); border-radius:6px;">
+      <img id="shareImg" style="display:block; width:100%; height:auto;">
+    </div>
+    <div class="modal-actions" style="margin-top:.7rem">
+      <button class="btn secondary" data-act="cancel">Close</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#shareImg').src = dataUrl;
+  overlay.addEventListener('click', (e)=>{
+    if(e.target === overlay){ overlay.remove(); return; }
+    if(e.target.getAttribute('data-act')==='cancel'){ overlay.remove(); }
+  });
+}
+
 // ---- Rendering ----
 function render(){
   const tabs = (state.mode==='direct') ? ['setup','knockout'] : ['setup','groups','knockout'];
@@ -602,6 +787,15 @@ function renderSetup(){
     <p class="muted" style="margin-top:.6rem">Add a handicap after a comma to seed the draw by WHI, e.g. <code>Alice, 5.4</code> — lowest handicap gets top seed and any byes. Leave it off any name for a plain random draw.</p>
     `}
   </div>
+  ${state.players.length ? `
+  <div class="card">
+    <h2>Fix a name</h2>
+    <p class="muted" style="margin-bottom:.6rem">Correct a typo without resetting anything — groups, results and the draw are unaffected.</p>
+    ${state.players.map(p=>`
+      <input type="text" value="${p.name.replace(/"/g,'&quot;')}" onchange="renamePlayer('${p.id}', this.value)"
+        style="width:100%;padding:.4rem .5rem;margin-bottom:.4rem;border:1px solid var(--line);border-radius:4px;font-size:.9rem;">
+    `).join('')}
+  </div>` : ''}
   ${state.players.length ? `<div class="card"><button class="btn danger" onclick="resetAll()">Reset everything</button></div>` : ''}
   `;
 }
@@ -612,23 +806,33 @@ function renderGroups(){
   return groups.map(g=>{
     const fixtures = fixturesFor(g);
     const rows = fixtures.map(([a,b])=>{
-      const r = state.results[matchKey(a,b)];
+      const r = normResult(state.results[matchKey(a,b)]);
+      const winner = r ? r.winner : null;
+      const margin = (r && r.margin!==null && r.margin!==undefined) ? r.margin : '';
       return `<div class="fixture">
         <div class="names">${playerName(a)} <span class="muted">v</span> ${playerName(b)}</div>
         <div class="opts">
-          <span class="pill ${r==='a'?'sel':''}" onclick="setResult('${a}','${b}','a')">${playerName(a)} won</span>
-          <span class="pill ${r==='half'?'sel':''}" onclick="setResult('${a}','${b}','half')">Halved</span>
-          <span class="pill ${r==='b'?'sel':''}" onclick="setResult('${a}','${b}','b')">${playerName(b)} won</span>
+          <span class="pill ${winner==='a'?'sel':''}" onclick="setWinner('${a}','${b}','a')">${playerName(a)} won</span>
+          <span class="pill ${winner==='half'?'sel':''}" onclick="setWinner('${a}','${b}','half')">Halved</span>
+          <span class="pill ${winner==='b'?'sel':''}" onclick="setWinner('${a}','${b}','b')">${playerName(b)} won</span>
+          ${(winner==='a'||winner==='b') ? `
+            <span class="muted" style="font-size:.8rem">by</span>
+            <input type="number" min="1" max="10" value="${margin}" placeholder="holes"
+              style="width:56px;padding:.25rem;border:1px solid var(--line);border-radius:4px;font-size:.85rem;"
+              onchange="setMargin('${a}','${b}', this.value)">
+            <span class="muted" style="font-size:.8rem">holes</span>
+          ` : ''}
         </div>
       </div>`;
     }).join('');
     const st = standings(g);
     const advIds = new Set(advancingForGroup(g));
     const ambiguous = hasAmbiguousTie(g);
+    const cutoffEntry = st[state.advancePerGroup-1];
     const standingRows = st.map((s,idx)=>{
-      const isTiedCutoff = ambiguous && s.pts === st[state.advancePerGroup-1].pts;
+      const isTiedCutoff = ambiguous && s.pts === cutoffEntry.pts && s.diff === cutoffEntry.diff;
       return `<tr>
-        <td>${idx+1}</td><td>${s.name}</td><td>${s.pts}</td>
+        <td>${idx+1}</td><td>${s.name}</td><td>${s.pts}</td><td>${s.diff>0?'+':''}${s.diff}</td>
         <td>${isTiedCutoff
           ? `<input type="checkbox" ${state.manualAdvance[s.id]?'checked':''} onchange="state.manualAdvance['${s.id}']=this.checked; save(); renderKeepScroll();">`
           : (advIds.has(s.id) ? '&#10003;' : '')}</td>
@@ -638,7 +842,7 @@ function renderGroups(){
       <h3>Group ${g+1} ${groupComplete(g)?'':'<span class=\"tag\">in progress</span>'}</h3>
       ${rows || '<p class="muted">No fixtures.</p>'}
       <table>
-        <tr><th>#</th><th>Player</th><th>Pts</th><th>Advances</th></tr>
+        <tr><th>#</th><th>Player</th><th>Pts</th><th>Holes +/-</th><th>Advances</th></tr>
         ${standingRows}
       </table>
       ${ambiguous ? `<p class="warn">Tie at the qualifying spot — tick who advances above.</p>` : ''}
@@ -717,6 +921,7 @@ function renderKnockout(){
   html += `<div class="card" style="margin-top:1rem">
     <button class="btn secondary" onclick="printDraw()">Print / Save as PDF</button>
     <button class="btn secondary" onclick="copyDraw()" style="margin-left:.5rem">Copy for WhatsApp</button>
+    <button class="btn secondary" onclick="shareImage()" style="margin-left:.5rem">Share as Image</button>
     <button class="btn danger" onclick="resetBracket()" style="margin-left:.5rem">Clear draw</button>
   </div>`;
   return html;
